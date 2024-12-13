@@ -520,23 +520,50 @@ class _DashboardState extends State<Dashboard> {
                   style: TextStyle(fontSize: 16, color: Constants.cyanColor)),
             ),
             ElevatedButton(
-              onPressed: () {
-                setState(() {
-                  // Remove the +63 prefix from contactController text before saving
-                  String updatedPhone =
-                      contactController.text.replaceFirst('+63', '');
-                  // Save updated details, using the updated phone number
-                  _saveUserDetails(
-                      updatedPhone); // Pass the cleaned phone number
-                });
+              onPressed: () async {
+                String updatedPhone =
+                    contactController.text.replaceFirst('+63', '');
 
-                // Update the contactController with the new phone number prefixed with +63
-                String updatedPhoneWithPrefix = '+63' + contactController.text;
-                setState(() {
-                  contactController.text = updatedPhoneWithPrefix;
-                });
+                // Check if the phone number already exists in the Google Sheets
+                bool phoneExists =
+                    await UserSheetsApi.checkPhoneOnGoogleSheets(updatedPhone);
 
-                Navigator.of(context).pop(); // Close dialog
+                if (phoneExists) {
+                  // Show a prompt if the phone number already exists
+                  showDialog(
+                    context: context,
+                    builder: (BuildContext context) {
+                      return AlertDialog(
+                        title: const Text('Phone Number Exists'),
+                        content: const Text(
+                            'The phone number already exists in the system. Please try a different number.'),
+                        actions: [
+                          TextButton(
+                            onPressed: () {
+                              Navigator.of(context).pop(); // Close the dialog
+                            },
+                            child: const Text('OK'),
+                          ),
+                        ],
+                      );
+                    },
+                  );
+                } else {
+                  // If phone does not exist, save updated details
+                  setState(() {
+                    _saveUserDetails(
+                        updatedPhone); // Pass the cleaned phone number
+                  });
+
+                  // Update the contactController with the new phone number prefixed with +63
+                  String updatedPhoneWithPrefix =
+                      '+63' + contactController.text;
+                  setState(() {
+                    contactController.text = updatedPhoneWithPrefix;
+                  });
+
+                  Navigator.of(context).pop(); // Close dialog
+                }
               },
               child: Text('Save',
                   style: TextStyle(fontSize: 16, color: Constants.cyanColor)),
@@ -816,35 +843,27 @@ class ContactCard extends StatelessWidget {
     );
   }
 
-  // Private helper function to get the current location
-  Future<Position> _getCurrentLocation() async {
-    try {
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        throw Exception('Location services are disabled.');
-      }
-
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
-          throw Exception('Location permissions are denied.');
-        }
-      }
-
-      if (permission == LocationPermission.deniedForever) {
-        throw Exception(
-            'Location permissions are permanently denied, we cannot request permissions.');
-      }
-
-      return await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high);
-    } catch (e) {
-      throw Exception('Failed to get location: $e');
-    }
-  }
-
   void _sendSmsWithLocation(BuildContext context) async {
+    // Check if location services are enabled
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    LocationPermission permission = await Geolocator.checkPermission();
+
+    // If the location services are not enabled or permission is denied, prompt the user
+    if (!serviceEnabled ||
+        permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      // Prompt the user to enable location services
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content:
+              Text('Please turn on location services to share your location.'),
+        ),
+      );
+      // You can also direct them to the location settings page if needed
+      Geolocator.openLocationSettings();
+      return; // Exit the function early if location services are not enabled
+    }
+
     // Access userName from the DashboardState
     final dashboardState = context.findAncestorStateOfType<_DashboardState>();
     String userName =
@@ -855,7 +874,8 @@ class ContactCard extends StatelessWidget {
         "This is $userName, and currently I am in danger due to a disaster. My location is below. Please help!";
 
     try {
-      Position position = await _getCurrentLocation();
+      Position position = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high);
       String locationDescription =
           'I am around this vicinity: Latitude: ${position.latitude}, Longitude: ${position.longitude}\n\nCopy and paste these coordinates in Google Maps to find my location: ${position.latitude}, ${position.longitude}\n\n- Sent via AlertMate.';
       smsText += '\n\nLocation description: $locationDescription';

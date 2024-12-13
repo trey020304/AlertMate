@@ -271,7 +271,6 @@ class _HomePageState extends State<HomePage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _buildLocationRow(),
                     const SizedBox(height: 10),
                     _buildWeatherCard(currentTime, currentDate),
                     const SizedBox(height: 15),
@@ -289,32 +288,6 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
         ));
-  }
-
-  // Builds the location row
-  Row _buildLocationRow() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Row(
-          children: [
-            _buildLocationIcon(),
-            const SizedBox(width: 10),
-            const Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text("Your location",
-                    style: TextStyle(color: Colors.grey, fontSize: 13)),
-                SizedBox(height: 0),
-                Text("Balagtas, Batangas",
-                    style:
-                        TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-              ],
-            ),
-          ],
-        ),
-      ],
-    );
   }
 
   // Builds location icon
@@ -611,7 +584,7 @@ class _HomePageState extends State<HomePage> {
         ),
         _buildToolCard(
           Icons.flashlight_on,
-          "Flashlight",
+          "Strobe Light",
           2,
           onPressed: _toggleFlashlight,
         ),

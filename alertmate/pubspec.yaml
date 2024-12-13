@@ -47,18 +47,18 @@ dependencies:
   intl: ^0.19.0
   torch_light: 1.1.0 #flashlight
   audioplayers: 6.1.0 #for audio
+  home_widget: 0.7.0 #home screen widgets
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-
-  flutter_launcher_icons: ^0.14.1 #apps have icons
   flutter_lints: ^5.0.0
+  flutter_launcher_icons: "^0.14.2"
 
-flutter icons: #other info for icons
-  android: true
-  ios: true
-  image_path: "assets/home logo.png"
+flutter_launcher_icons:
+  android: "launcher_icon"
+  remove_alpha_ios: true
+  image_path: "assets/icon/home logo.png"
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is

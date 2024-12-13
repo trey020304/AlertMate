@@ -29,7 +29,8 @@
         🖍️ font_awesome_flutter: ^10.5.0
         🖍️ intl: ^0.19.0
         🖍️ torch_light: 1.1.0 
-        🖍️ audioplayers: 6.1.0 
+        🖍️ audioplayers: 6.1.0
+        🖍️ flutter_launcher_icons
  **Required Resources** <br>
 	🖍️ GitHub, IDEs for development <br>
 	🖍️ Multimedia resources for integration <br>
@@ -52,6 +53,8 @@
 
 ### How To Download?
       📱  You can install the apk provided here to try out the application (Note that you should use Android as the application does not fully support iOS)
-      💻  Clone the repository to your computer. Install the User Sheets API provided down the link below, and paste the file on the directory provided below as well.
+      💻  Clone the repository to your computer. Install the User Sheets API and the route.dart provided down the link below, and paste the file on the directory provided below as well.
         - User Sheets API:  https://drive.google.com/file/d/1Tqi7oTdxQmN_tpjg8cBAyLXyWEEsGGqU/view?usp=drive_link
-        - Directory:  Inside the AlertMate folder -> alertmate\lib\sheets
+        - route.dart: https://drive.google.com/file/d/1SpQkCVtQuiTjua5NXh1U43zGpqeLro_v/view?usp=drive_link
+        - Directory for User Sheets:  Inside the AlertMate folder -> alertmate\lib\sheets
+	- Directory for route.dart: Inside the AlertMate folder -> alertmate\lib\model

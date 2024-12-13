@@ -3,8 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:http/http.dart' as http;
-/*import 'package:geolocator/geolocator.dart';*/
+import 'package:geolocator/geolocator.dart';
 import 'package:alertmate/constants.dart';
+import 'package:alertmate/model/route.dart';
 
 class LocationPage extends StatefulWidget {
   const LocationPage({super.key});
@@ -14,7 +15,7 @@ class LocationPage extends StatefulWidget {
 }
 
 class _LocationPageState extends State<LocationPage> {
-  final LatLng userLocation = LatLng(13.798843151276378, 121.07085406431057);
+  LatLng? userLocation; // Initial location is null
   final List<Map<String, dynamic>> locations = [
     // Hospitals
     {
@@ -106,13 +107,63 @@ class _LocationPageState extends State<LocationPage> {
     super.initState();
     filteredMarkers = [];
     calculateDistances();
+    fetchUserLocation();
+  }
+
+  Future<void> fetchUserLocation() async {
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        throw Exception(
+            "Location services are disabled. Enable them to use this feature.");
+      }
+
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          throw Exception("Location permissions are denied.");
+        }
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        throw Exception(
+          "Location permissions are permanently denied. Enable them from settings.",
+        );
+      }
+
+      Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
+      setState(() {
+        userLocation = LatLng(position.latitude, position.longitude);
+      });
+
+      calculateDistances();
+    } catch (e) {
+      print("Error fetching user location: $e");
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text("Location Error"),
+          content: Text(e.toString()),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text("Close"),
+            ),
+          ],
+        ),
+      );
+    }
   }
 
   void calculateDistances() {
-    distancesToLocations.clear();
-    polylinePoints.clear(); // Clear the polyline points when recalculating
+    if (userLocation == null) return;
 
-    // Filter the locations based on the current filter
+    distancesToLocations.clear();
+    polylinePoints.clear();
     List<Map<String, dynamic>> filteredLocations = locations
         .where((location) =>
             location["type"] == filterType || filterType == 'All Locations')
@@ -120,35 +171,32 @@ class _LocationPageState extends State<LocationPage> {
 
     for (var location in filteredLocations) {
       double distInMeters = distance.as(
-        LengthUnit.Meter, // Get the distance in meters
-        userLocation,
+        LengthUnit.Meter,
+        userLocation!,
         location["location"],
       );
-
-      // Convert meters to kilometers and round to 2 decimal places
       double distInKm = double.parse((distInMeters / 1000).toStringAsFixed(2));
-      distancesToLocations.add(distInKm); // Add the rounded value
+      distancesToLocations.add(distInKm);
     }
 
     if (distancesToLocations.isNotEmpty) {
-      double minDistance = distancesToLocations.reduce((a, b) => a < b ? a : b);
-      int nearestIndex = distancesToLocations.indexOf(minDistance);
-
-      // Fetch the route for the nearest location only if alt_route is off
       if (!isAltRoute) {
-        fetchRoute(userLocation, filteredLocations[nearestIndex]["location"]);
+        // Fetch the nearest route if not in alt_route mode
+        double minDistance =
+            distancesToLocations.reduce((a, b) => a < b ? a : b);
+        int nearestIndex = distancesToLocations.indexOf(minDistance);
+        fetchRoute(userLocation!, filteredLocations[nearestIndex]["location"]);
+
+        setState(() {
+          nearestLocation = filteredLocations[nearestIndex]["name"];
+          nearestLocationDistance = minDistance;
+        });
       } else {
-        // Fetch routes for all locations if alt_route is on
+        // If alt_route is enabled, fetch routes for all locations
         for (var location in filteredLocations) {
-          fetchRoute(userLocation, location["location"]);
+          fetchRoute(userLocation!, location["location"]);
         }
       }
-
-      setState(() {
-        nearestLocation = filteredLocations[nearestIndex]["name"];
-        nearestLocationDistance =
-            minDistance; // Update nearest location details
-      });
     }
 
     setState(() {});
@@ -156,24 +204,32 @@ class _LocationPageState extends State<LocationPage> {
 
   Future<void> fetchRoute(LatLng start, LatLng end) async {
     final url = Uri.parse(
-      'http://router.project-osrm.org/route/v1/driving/'
-      '${start.longitude},${start.latitude};${end.longitude},${end.latitude}?overview=full&geometries=geojson',
+      'https://api.openrouteservice.org/v2/directions/driving-car'
+      '?start=${start.longitude},${start.latitude}&end=${end.longitude},${end.latitude}',
     );
 
     try {
-      final response = await http.get(url);
+      final response = await http.get(
+        url,
+        headers: {
+          'Authorization':
+              openRouteServiceApiKey, // Use the API key from config
+        },
+      );
+
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final List<dynamic> coordinates =
-            data['routes'][0]['geometry']['coordinates'];
+            data['features'][0]['geometry']['coordinates'];
 
         // Convert coordinates to LatLng and update polyline
         List<LatLng> routePoints =
             coordinates.map((coord) => LatLng(coord[1], coord[0])).toList();
 
-        // Ensure the points are added as a List<List<LatLng>>
+        // Log route fetching for debugging
+        print('Fetched route from ${start.toString()} to ${end.toString()}');
         polylinePoints.add(routePoints);
-        setState(() {});
+        setState(() {}); // Assuming this is in a stateful widget
       } else {
         throw Exception('Failed to fetch route');
       }
@@ -255,7 +311,7 @@ class _LocationPageState extends State<LocationPage> {
 
   // Function to center map back to the user's current location
   void _goToUserLocation() {
-    mapController.move(userLocation,
+    mapController.move(userLocation!,
         18.0); // Move the map to the user's location with zoom level 16
   }
 
@@ -265,278 +321,278 @@ class _LocationPageState extends State<LocationPage> {
       appBar: AppBar(
         title: const Text(
           'Location',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-          ),
+          style: TextStyle(fontWeight: FontWeight.bold),
         ),
       ),
-      body: Stack(
-        children: [
-          // FlutterMap with user location and hospitals
-          FlutterMap(
-            mapController: mapController, // Assign the controller
-            options: MapOptions(
-              center: userLocation,
-              zoom: 18.0,
-              maxZoom: 18.4,
-              minZoom: 10.0,
-            ),
-            children: [
-              TileLayer(
-                urlTemplate:
-                    'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-                subdomains: ['a', 'b', 'c'],
-                additionalOptions: {
-                  'attribution': '© OpenStreetMap contributors',
-                },
-              ),
-              if (isFiltered) ...[
-                // PolylineLayer comes first so that it's rendered behind markers
-                PolylineLayer(
-                  polylines: polylinePoints
-                      .map(
-                        (points) => Polyline(
-                          points: points,
-                          strokeWidth: 4.0,
-                          color: isAltRoute
-                              ? const Color.fromARGB(255, 10, 139, 139)
-                              : const Color.fromARGB(255, 10, 139,
-                                  139), // Differentiate polylines if needed
-                        ),
-                      )
-                      .toList(),
-                ),
-                MarkerLayer(
-                  markers: [
-                    // User's current location marker
-                    Marker(
-                      point: userLocation,
-                      builder: (context) => Icon(
-                        Icons.location_on, // Icon for user's location
-                        color: Constants
-                            .cyanColor, // Color for the icon (can be customized)
-                        size: 45.0, // Size of the icon
-                      ),
+      body: userLocation == null
+          ? const Center(child: CircularProgressIndicator())
+          : Stack(
+              children: [
+                FlutterMap(
+                  mapController: mapController,
+                  options: MapOptions(
+                    center: userLocation,
+                    zoom: 18.0,
+                    maxZoom: 18.4,
+                    minZoom: 10.0,
+                  ),
+                  children: [
+                    TileLayer(
+                      urlTemplate:
+                          'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                      subdomains: ['a', 'b', 'c'],
+                      additionalOptions: {
+                        'attribution': '© OpenStreetMap contributors',
+                      },
                     ),
-                    ...filteredMarkers.map((marker) {
-                      IconData icon;
-                      Color color;
+                    if (isFiltered) ...[
+                      // PolylineLayer comes first so that it's rendered behind markers
+                      PolylineLayer(
+                        polylines: polylinePoints
+                            .map(
+                              (points) => Polyline(
+                                points: points,
+                                strokeWidth: 4.0,
+                                color: isAltRoute
+                                    ? const Color.fromARGB(255, 10, 139, 139)
+                                    : const Color.fromARGB(255, 10, 139,
+                                        139), // Differentiate polylines if needed
+                              ),
+                            )
+                            .toList(),
+                      ),
+                      MarkerLayer(
+                        markers: [
+                          // User's current location marker
+                          Marker(
+                            point: userLocation!,
+                            builder: (context) => Icon(
+                              Icons.location_on, // Icon for user's location
+                              color: Constants
+                                  .cyanColor, // Color for the icon (can be customized)
+                              size: 45.0, // Size of the icon
+                            ),
+                          ),
+                          ...filteredMarkers.map((marker) {
+                            IconData icon;
+                            Color color;
 
-                      // Set icon and color based on marker type
-                      switch (marker["type"]) {
-                        case "Hospital":
-                          icon = Icons.local_hospital;
-                          color = Constants.cyanColor;
-                          break;
-                        case "Fire Station":
-                          icon = Icons.local_fire_department;
-                          color = Colors.orange;
-                          break;
-                        case "Police Station":
-                          icon = Icons.local_police;
-                          color = Colors.blue;
-                          break;
-                        default:
-                          icon = Icons.location_on;
-                          color = Colors.black;
-                          break;
-                      }
+                            // Set icon and color based on marker type
+                            switch (marker["type"]) {
+                              case "Hospital":
+                                icon = Icons.local_hospital;
+                                color = Constants.cyanColor;
+                                break;
+                              case "Fire Station":
+                                icon = Icons.local_fire_department;
+                                color = Colors.orange;
+                                break;
+                              case "Police Station":
+                                icon = Icons.local_police;
+                                color = Colors.blue;
+                                break;
+                              default:
+                                icon = Icons.location_on;
+                                color = Colors.black;
+                                break;
+                            }
 
-                      return Marker(
-                        point: marker["location"],
-                        builder: (context) => Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            // Large white circle with a grey shadow
-                            Container(
-                              width: 60.0, // Circle size
-                              height: 60.0, // Circle size
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: Colors
-                                      .white, // Optional: outline for visibility
-                                  width: 2.0,
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.grey.withOpacity(
-                                        0.5), // Grey shadow color with some opacity
-                                    spreadRadius:
-                                        2.0, // Spread the shadow outwards
-                                    blurRadius:
-                                        5.0, // Blur the shadow for softness
-                                    offset: Offset(3,
-                                        3), // Shadow offset (down and to the right)
+                            return Marker(
+                              point: marker["location"],
+                              builder: (context) => Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                  // Large white circle with a grey shadow
+                                  Container(
+                                    width: 60.0, // Circle size
+                                    height: 60.0, // Circle size
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: Colors
+                                            .white, // Optional: outline for visibility
+                                        width: 2.0,
+                                      ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.grey.withOpacity(
+                                              0.5), // Grey shadow color with some opacity
+                                          spreadRadius:
+                                              2.0, // Spread the shadow outwards
+                                          blurRadius:
+                                              5.0, // Blur the shadow for softness
+                                          offset: Offset(3,
+                                              3), // Shadow offset (down and to the right)
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  // Icon in the center of the circle
+                                  Icon(
+                                    icon,
+                                    color: color,
+                                    size: 25.0, // Icon size
                                   ),
                                 ],
                               ),
-                            ),
-                            // Icon in the center of the circle
-                            Icon(
-                              icon,
-                              color: color,
-                              size: 25.0, // Icon size
-                            ),
-                          ],
-                        ),
-                      );
-                    }).toList(),
-                  ],
-                )
-              ],
-            ],
-          ),
-          // Location List and Distances Floating at the Top
-          if (isFiltered)
-            Positioned(
-              top: 20,
-              left: 20,
-              right: 20,
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(10),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.2),
-                      blurRadius: 6,
-                      spreadRadius: 2,
-                    ),
+                            );
+                          }).toList(),
+                        ],
+                      )
+                    ],
                   ],
                 ),
-                child: ExpansionTile(
-                  title: Text(
-                    '$filterType and Distances',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w500,
-                      color: Colors.grey,
-                    ),
-                  ),
-                  children: [
-                    SizedBox(
-                      height: 400,
-                      child: ListView.builder(
-                        shrinkWrap: true,
-                        physics: const BouncingScrollPhysics(),
-                        itemCount: filteredMarkers.length,
-                        itemBuilder: (context, i) {
-                          return ListTile(
-                            title: Text(filteredMarkers[i]["name"]),
-                            subtitle: Text(
-                              "Location: ${filteredMarkers[i]["location"].latitude.toStringAsFixed(4)}, "
-                              "${filteredMarkers[i]["location"].longitude.toStringAsFixed(4)}\n"
-                              "Distance: ${distancesToLocations.isNotEmpty ? distancesToLocations[i].toString() : 'Calculating...'} km",
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          // Add this new Positioned widget for the building button
-          Positioned(
-            bottom: 150, // Position above the filter button
-            right: 20,
-            child: FloatingActionButton(
-              onPressed: () {
-                setState(() {
-                  isAltRoute = !isAltRoute; // Toggle between the icons
-                  buttonColor =
-                      isAltRoute ? Colors.white : Colors.grey; // Toggle color
-                  buttonBackgroundColor = isAltRoute
-                      ? Constants.cyanColor
-                      : Colors.white; // Toggle background color
-                });
-                calculateDistances(); // Recalculate distances and routes based on mode
-              },
-              backgroundColor: buttonBackgroundColor,
-              shape: const CircleBorder(),
-              child: Icon(
-                isAltRoute
-                    ? Icons.alt_route
-                    : Icons.location_pin, // Toggle icons
-                color: buttonColor, // Use the toggled color
-              ),
-            ),
-          ),
-          // Filter button positioned above the goToUserLocation button
-          Positioned(
-            bottom: 85, // Position it above the goToUserLocation button
-            right: 20,
-            child: FloatingActionButton(
-              onPressed: _openFilter, // Opens the filter functionality
-              backgroundColor: Colors.white,
-              shape: const CircleBorder(),
-              child: const Icon(
-                Icons.near_me_outlined,
-                color: Colors.grey,
-              ),
-            ),
-          ),
-          // Floating action button to return to user location with a circular shape
-          Positioned(
-            bottom: 20,
-            right: 20,
-            child: FloatingActionButton(
-              onPressed: _goToUserLocation,
-              backgroundColor: Constants.cyanColor,
-              shape: const CircleBorder(),
-              child: const Icon(
-                Icons.my_location,
-                color: Colors.white,
-              ),
-            ),
-          ),
-          // Floating widget displaying nearest location, below the filter button
-          if (nearestLocation.isNotEmpty) ...[
-            Positioned(
-              bottom:
-                  35, // Position it just above the Go to User Location button
-              left: 20,
-              child: Center(
-                child: Material(
-                  elevation: 5.0,
-                  borderRadius:
-                      BorderRadius.circular(10), // Increased border radius
-                  child: SizedBox(
-                    width: 285, // Set desired width here
+                // Location List and Distances Floating at the Top
+                if (isFiltered)
+                  Positioned(
+                    top: 20,
+                    left: 20,
+                    right: 20,
                     child: Container(
-                      padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
                         color: Colors.white,
-                        borderRadius:
-                            BorderRadius.circular(10), // Same radius here
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            "Nearest Recommended Location:",
-                            style: TextStyle(
-                              color: Constants.cyanColor,
-                            ),
+                        borderRadius: BorderRadius.circular(10),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.2),
+                            blurRadius: 6,
+                            spreadRadius: 2,
                           ),
-                          Text(
-                            '$nearestLocation ($nearestLocationDistance km)',
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w500,
+                        ],
+                      ),
+                      child: ExpansionTile(
+                        title: Text(
+                          '$filterType and Distances',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w500,
+                            color: Colors.grey,
+                          ),
+                        ),
+                        children: [
+                          SizedBox(
+                            height: 400,
+                            child: ListView.builder(
+                              shrinkWrap: true,
+                              physics: const BouncingScrollPhysics(),
+                              itemCount: filteredMarkers.length,
+                              itemBuilder: (context, i) {
+                                return ListTile(
+                                  title: Text(filteredMarkers[i]["name"]),
+                                  subtitle: Text(
+                                    "Location: ${filteredMarkers[i]["location"].latitude.toStringAsFixed(4)}, "
+                                    "${filteredMarkers[i]["location"].longitude.toStringAsFixed(4)}\n"
+                                    "Distance: ${distancesToLocations.isNotEmpty ? distancesToLocations[i].toString() : 'Calculating...'} km",
+                                  ),
+                                );
+                              },
                             ),
                           ),
                         ],
                       ),
                     ),
                   ),
+                // Add this new Positioned widget for the building button
+                Positioned(
+                  bottom: 150, // Position above the filter button
+                  right: 20,
+                  child: FloatingActionButton(
+                    onPressed: () {
+                      setState(() {
+                        isAltRoute = !isAltRoute; // Toggle between the icons
+                        buttonColor = isAltRoute
+                            ? Colors.white
+                            : Colors.grey; // Toggle color
+                        buttonBackgroundColor = isAltRoute
+                            ? Constants.cyanColor
+                            : Colors.white; // Toggle background color
+                      });
+                      calculateDistances(); // Recalculate distances and routes based on mode
+                    },
+                    backgroundColor: buttonBackgroundColor,
+                    shape: const CircleBorder(),
+                    child: Icon(
+                      isAltRoute
+                          ? Icons.alt_route
+                          : Icons.location_pin, // Toggle icons
+                      color: buttonColor, // Use the toggled color
+                    ),
+                  ),
                 ),
-              ),
+                // Filter button positioned above the goToUserLocation button
+                Positioned(
+                  bottom: 85, // Position it above the goToUserLocation button
+                  right: 20,
+                  child: FloatingActionButton(
+                    onPressed: _openFilter, // Opens the filter functionality
+                    backgroundColor: Colors.white,
+                    shape: const CircleBorder(),
+                    child: const Icon(
+                      Icons.near_me_outlined,
+                      color: Colors.grey,
+                    ),
+                  ),
+                ),
+                // Floating action button to return to user location with a circular shape
+                Positioned(
+                  bottom: 20,
+                  right: 20,
+                  child: FloatingActionButton(
+                    onPressed: _goToUserLocation,
+                    backgroundColor: Constants.cyanColor,
+                    shape: const CircleBorder(),
+                    child: const Icon(
+                      Icons.my_location,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+                // Floating widget displaying nearest location, below the filter button
+                if (nearestLocation.isNotEmpty) ...[
+                  Positioned(
+                    bottom:
+                        35, // Position it just above the Go to User Location button
+                    left: 20,
+                    child: Center(
+                      child: Material(
+                        elevation: 5.0,
+                        borderRadius: BorderRadius.circular(
+                            10), // Increased border radius
+                        child: SizedBox(
+                          width: 285, // Set desired width here
+                          child: Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius:
+                                  BorderRadius.circular(10), // Same radius here
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  "Nearest Recommended Location:",
+                                  style: TextStyle(
+                                    color: Constants.cyanColor,
+                                  ),
+                                ),
+                                Text(
+                                  '$nearestLocation ($nearestLocationDistance km)',
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
             ),
-          ],
-        ],
-      ),
     );
   }
 }

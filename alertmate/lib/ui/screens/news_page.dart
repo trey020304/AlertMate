@@ -12,14 +12,21 @@ class _NewsPageState extends State<NewsPage> {
   // The current filter value
   String currentFilter = "All";
 
+  // Controller for the search bar
+  final TextEditingController searchController = TextEditingController();
+
   @override
   Widget build(BuildContext context) {
-    // Filtered news items based on the current filter
-    List<Map<String, String>> filteredNewsItems = currentFilter == "All"
-        ? allNewsItems
-        : allNewsItems
-            .where((item) => item["source"] == currentFilter)
-            .toList();
+    // Filtered news items based on the current filter and search query
+    List<Map<String, String>> filteredNewsItems = allNewsItems.where((item) {
+      final matchesFilter =
+          currentFilter == "All" || item["source"] == currentFilter;
+      final matchesSearch = searchController.text.isEmpty ||
+          item["title"]!
+              .toLowerCase()
+              .contains(searchController.text.toLowerCase());
+      return matchesFilter && matchesSearch;
+    }).toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -35,6 +42,10 @@ class _NewsPageState extends State<NewsPage> {
           children: [
             // Search Bar
             TextField(
+              controller: searchController,
+              onChanged: (value) {
+                setState(() {}); // Trigger UI refresh on search query change
+              },
               decoration: InputDecoration(
                 filled: true,
                 fillColor: Colors.grey[200],
@@ -135,6 +146,12 @@ class _NewsPageState extends State<NewsPage> {
         ),
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    searchController.dispose();
+    super.dispose();
   }
 }
 

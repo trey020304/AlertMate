@@ -93,17 +93,17 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  // Call this method to log out the user
-  Future<void> _logout() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    await prefs.remove('phone');
-    await prefs.remove('password');
-    await prefs.setBool('isLoggedIn', false); // Update login state
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (context) => const LoginPage()),
-    );
-  }
+  // // Call this method to log out the user
+  // Future<void> _logout() async {
+  //   SharedPreferences prefs = await SharedPreferences.getInstance();
+  //   await prefs.remove('phone');
+  //   await prefs.remove('password');
+  //   await prefs.setBool('isLoggedIn', false); // Update login state
+  //   Navigator.pushReplacement(
+  //     context,
+  //     MaterialPageRoute(builder: (context) => const LoginPage()),
+  //   );
+  // }
 
   @override
   Widget build(BuildContext context) {

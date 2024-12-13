@@ -318,6 +318,39 @@ class _AlertPageState extends State<AlertPage> {
 
   Future<void> _sendSmsWithLocation(BuildContext context, String number) async {
     try {
+      // Check if location services are enabled
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Please enable location services to proceed.')),
+        );
+        return; // Exit the function if location services are not enabled
+      }
+
+      // Check location permission status
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+                content: Text(
+                    'Location permission denied. Please enable it in settings.')),
+          );
+          return; // Exit if permission is still denied
+        }
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text(
+                  'Location permissions are permanently denied. Enable them in settings.')),
+        );
+        return; // Exit if permissions are permanently denied
+      }
+
       // Retrieve the logged-in phone number from SharedPreferences
       final prefs = await SharedPreferences.getInstance();
       String phone = prefs.getString('phone') ?? "Unknown Phone";
